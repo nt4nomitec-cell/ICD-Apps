@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { initializeStore } from './store';
+import { syncLocalStorageToFirebase, testFirebaseConnection } from './firebaseStore';
 import Login from './components/Login';
 import AdminDashboard from './components/AdminDashboard';
 import CustomerDashboard from './components/CustomerDashboard';
@@ -10,7 +11,28 @@ function App() {
   const [customerId, setCustomerId] = useState<string | null>(null);
 
   useEffect(() => {
-    initializeStore();
+    // Sirf ek baar sync karein
+    const syncDone = sessionStorage.getItem('sync_done');
+    
+    if (!syncDone) {
+      initializeStore();
+      
+      console.log('🔄 Firebase sync shuru ho raha hai...');
+      
+      // Pehle connection test karein
+      testFirebaseConnection().then(() => {
+        console.log('✅ Test pass! Ab poora sync shuru...');
+        return syncLocalStorageToFirebase();
+      }).then(() => {
+        console.log('✅ LocalStorage data Firebase mein sync ho gaya!');
+        sessionStorage.setItem('sync_done', 'true');
+      }).catch((error) => {
+        console.error('❌ Firebase sync mein error:', error);
+        alert('Firebase sync ka error: ' + error.message);
+      });
+    }
+
+    // Purani session check karein
     const savedSession = sessionStorage.getItem('icd_session');
     if (savedSession) {
       const session = JSON.parse(savedSession);
@@ -50,4 +72,3 @@ function App() {
 }
 
 export default App;
-

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { getCustomers, getAdminPassword } from '../store';
+import { getCustomerByPhoneFB } from '../firebaseStore'; // ✅ Yeh import upar aa gayi
 
 interface LoginProps {
   onLogin: (type: 'admin' | 'customer', customerId?: string) => void;
@@ -20,13 +21,17 @@ export default function Login({ onLogin }: LoginProps) {
     }
   };
 
-  const handleCustomerLogin = () => {
-    const customers = getCustomers();
-    const customer = customers.find(c => c.phone === phone && c.password === custPassword);
-    if (customer) {
-      onLogin('customer', customer.id);
-    } else {
-      setError('Phone ya password galat hai!');
+  const handleCustomerLogin = async () => {
+    try {
+      const customer = await getCustomerByPhoneFB(phone);
+      if (customer && customer.password === custPassword) {
+        onLogin('customer', customer.id);
+      } else {
+        setError('Phone ya password galat hai!');
+      }
+    } catch (error) {
+      setError('Login mein masla aa gaya!');
+      console.error(error);
     }
   };
 
@@ -36,8 +41,8 @@ export default function Login({ onLogin }: LoginProps) {
         <div className="bg-gradient-to-r from-blue-600 to-cyan-500 p-8 text-center">
           <div className="w-24 h-24 flex items-center justify-center mx-auto mb-4" 
      style={{ filter: 'drop-shadow(0 0 15px rgba(255,255,255,0.8))' }}>
-    <img src="/logo-new.png" alt="Ismail Cold Drinks" className="w-full h-full object-contain" />
-</div>
+            <img src="/logo-new.png" alt="Ismail Cold Drinks" className="w-full h-full object-contain" />
+          </div>
           <h1 className="text-3xl font-bold text-white">ICD</h1>
           <p className="text-blue-100 mt-1">Ismail Cold Drinks - Wholesale</p>
         </div>
@@ -94,5 +99,3 @@ export default function Login({ onLogin }: LoginProps) {
     </div>
   );
 }
-
-
