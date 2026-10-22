@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 3px; }
+
+@media print {
+  body * { visibility: hidden; }
+  
+  /* Admin Bill ke liye */
+  #bill-print, #bill-print *, 
+  #bill-content, #bill-content * { visibility: visible; }
+  #bill-print, #bill-content { 
+    position: absolute; 
+    left: 0; 
+    top: 0; 
+    width: 100%; 
+  }
+  
+  /* Admin Ledger ke liye */
+  #ledger-print, #ledger-print * { visibility: visible; }
+  #ledger-print { 
+    position: absolute; 
+    left: 0; 
+    top: 0; 
+    width: 100%; 
+    padding: 20px;
+  }
+
+  /* Customer Ledger ke liye */
+  #customer-ledger-print, #customer-ledger-print * { visibility: visible; }
+  #customer-ledger-print { 
+    position: absolute; 
+    left: 0; 
+    top: 0; 
+    width: 100%; 
+    padding: 20px;
+  }
+
+  /* Customer Bill ke liye */
+  #customer-bill-print, #customer-bill-print * { visibility: visible; }
+  #customer-bill-print { 
+    position: absolute; 
+    left: 0; 
+    top: 0; 
+    width: 100%; 
+    padding: 20px;
+  }
+  
+  /* Print button aur Back button ko chupane ke liye */
+  .no-print { display: none !important; }
+}
+/* Watermark CSS - Screen par bilkul chupa rahega */
+.watermark {
+  display: none; /* Screen par hidden */
+}
+
+.watermark-text {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-45deg);
+  font-size: 60px;
+  font-weight: bold;
+  color: rgba(255, 0, 0, 0.15); /* Halka laal rang */
+  border: 8px solid rgba(255, 0, 0, 0.15);
+  padding: 20px 40px;
+  letter-spacing: 10px;
+  white-space: nowrap;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+@media print {
+  body * { visibility: hidden; }
+  
+  /* Bill aur Ledger ke print rules */
+  #bill-print, #bill-print *, 
+  #bill-content, #bill-content * { visibility: visible; }
+  #bill-print, #bill-content { position: absolute; left: 0; top: 0; width: 100%; }
+  
+  #ledger-print, #ledger-print * { visibility: visible; }
+  #ledger-print { position: absolute; left: 0; top: 0; width: 100%; padding: 20px; }
+
+  #customer-ledger-print, #customer-ledger-print * { visibility: visible; }
+  #customer-ledger-print { position: absolute; left: 0; top: 0; width: 100%; padding: 20px; }
+
+  #customer-bill-print, #customer-bill-print * { visibility: visible; }
+  #customer-bill-print { position: absolute; left: 0; top: 0; width: 100%; padding: 20px; }
+  
+  /* Print ke waqt watermark ko zahir karein */
+  .watermark {
+    display: block !important; /* Sirf print mein show hoga */
+  }
+  
+  .no-print { display: none !important; }
+}
+
+input:focus, select:focus, textarea:focus { outline: none; }
