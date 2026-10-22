@@ -63,7 +63,7 @@ export default function SalesEntry() {
   const previousBalance = selectedCustomer ? calculateCustomerBalance(selectedCustomer) : 0;
   const currentBalance = totalAmount - cashReceived;
   const finalBalance = previousBalance + currentBalance;
-  const balance = totalAmount - cashReceived;
+  //const balance = totalAmount - cashReceived;
 
   const handleSubmit = () => {
     if (!selectedCustomer) { alert('Customer select karein!'); return; }
