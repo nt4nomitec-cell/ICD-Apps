@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { getCustomers, getAdminPassword } from '../store';
+import { getAdminPassword } from '../store';
 import { getCustomerByPhoneFB } from '../firebaseStore'; // ✅ Yeh import upar aa gayi
 
 interface LoginProps {
