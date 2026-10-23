@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
-import { getCustomersFB, getLedgerByCustomerFB, calculateCustomerBalanceFB, getProductsFB, getSalesFB } from '../firebaseStore';
+import { getCustomersFB, getLedgerByCustomerFB, getProductsFB, getSalesFB } from '../firebaseStore';
 import { Customer, SaleEntry, LedgerEntry, Product } from '../types';
 
 interface CustomerDashboardProps { customerId: string; onLogout: () => void; }
@@ -36,22 +36,7 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
         const allSales = await getSalesFB();
         const customerSales = allSales.filter(s => s.customerId === customerId);
         setSales(customerSales);
-        
-        if (c.phone) {
-          const ordersQuery = query(collection(db, "orders"), where("customerPhone", "==", c.phone));
-          const ordersSnapshot = await getDocs(ordersQuery);
-          // 🔴 Ab saare orders load karein (Pending, Completed, Cancelled) - sirf completed nahi
-          const allOrders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          allOrders.sort((a: any, b: any) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-          setFirebaseOrders(allOrders);
-          
-          // Balance calculation - sirf completed orders aur ledger se
-          const completedOrders = allOrders.filter((o: any) => o.status === 'Completed');
-          const totalDebit = ledgerData.reduce((sum, entry) => sum + (entry.debit || 0), 0);
-          const totalCredit = ledgerData.reduce((sum, entry) => sum + (entry.credit || 0), 0);
-          setBalance(totalDebit - totalCredit);
-        }
-        
+                    
         const productsData = await getProductsFB();
         setProducts(productsData);
         setOrderAddress(c.address || '');
