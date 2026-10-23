@@ -22,31 +22,87 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
   const [orderSuccess, setOrderSuccess] = useState(false);
 
   useEffect(() => {
+  let isMounted = true; // Strict mode fix
+  
   const loadCustomerData = async () => {
     try {
+      console.log('🔄 Loading customer data for ID:', customerId);
+      
       const allCustomers = await getCustomersFB();
       const c = allCustomers.find(cust => cust.id === customerId);
       
-      if (c) {
+      if (c && isMounted) {
+        console.log('✅ Customer found:', c.name, 'Phone:', c.phone);
         setCustomer(c);
         
+        // 1. Ledger Load Karein
         const ledgerData = await getLedgerByCustomerFB(customerId);
+        console.log('📊 Ledger entries loaded:', ledgerData.length);
         setLedger(ledgerData);
         
+        // 2. Balance Calculate Karein
+        let totalDebit = 0;
+        let totalCredit = 0;
+        ledgerData.forEach(entry => {
+          const debit = Number(entry.debit) || 0;
+          const credit = Number(entry.credit) || 0;
+          totalDebit += debit;
+          totalCredit += credit;
+        });
+        const calculatedBalance = totalDebit - totalCredit;
+        console.log('💰 Balance Calculation - Debit:', totalDebit, 'Credit:', totalCredit, 'Balance:', calculatedBalance);
+        setBalance(calculatedBalance);
+        
+        // 3. Sales (Admin Bills) Load Karein
         const allSales = await getSalesFB();
         const customerSales = allSales.filter(s => s.customerId === customerId);
+        console.log(' Admin sales loaded:', customerSales.length);
         setSales(customerSales);
-                    
+        
+        // 4. Online Orders Load Karein - Phone number ko trim kar ke use karein
+        if (c.phone && isMounted) {
+          const cleanPhone = c.phone.trim();
+          console.log(' Searching orders for phone:', cleanPhone);
+          
+          try {
+            const ordersQuery = query(collection(db, "orders"), where("customerPhone", "==", cleanPhone));
+            const ordersSnapshot = await getDocs(ordersQuery);
+            console.log(' Orders found in Firebase:', ordersSnapshot.size);
+            
+            const allOrders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            console.log('📋 All orders:', allOrders);
+            
+            if (isMounted) {
+              setFirebaseOrders(allOrders);
+            }
+          } catch (orderError) {
+            console.error('❌ Orders query error:', orderError);
+            if (isMounted) {
+              setFirebaseOrders([]);
+            }
+          }
+        }
+        
+        // 5. Products Load Karein
         const productsData = await getProductsFB();
-        setProducts(productsData);
-        setOrderAddress(c.address || '');
+        if (isMounted) {
+          setProducts(productsData);
+          setOrderAddress(c.address || '');
+        }
+      } else {
+        console.error('❌ Customer not found with ID:', customerId);
       }
     } catch (error) {
-      console.error("Customer data load karne mein error:", error);
+      console.error("❌ Customer data load karne mein error:", error);
     }
   };
   
   loadCustomerData();
+  
+  // Cleanup function for Strict Mode
+  return () => {
+    isMounted = false;
+  };
 }, [customerId]);
 
   const loadFirebaseOrders = async (phone: string) => {
@@ -137,10 +193,20 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
       </header>
 
       <div className="max-w-5xl mx-auto px-4 -mt-4">
-        <div className={`rounded-xl p-6 shadow-lg ${balance > 0 ? 'bg-gradient-to-r from-red-500 to-red-600' : 'bg-gradient-to-r from-green-500 to-green-600'} text-white`}>
-          <p className="text-sm opacity-80">Your Outstanding Balance</p>
-          <p className="text-4xl font-bold mt-1">Rs. {balance}</p>
-        </div>
+        <div className={`rounded-xl p-6 shadow-lg ${
+  balance > 0 ? 'bg-gradient-to-r from-red-500 to-red-600' : 
+  balance < 0 ? 'bg-gradient-to-r from-blue-500 to-blue-600' : 
+  'bg-gradient-to-r from-green-500 to-green-600'
+} text-white`}>
+  <p className="text-sm opacity-80">
+    {balance > 0 ? 'Your Outstanding Balance' : 
+     balance < 0 ? 'Your Advance Payment' : 
+     'Your Outstanding Balance'}
+  </p>
+  <p className="text-4xl font-bold mt-1">
+    Rs. {Math.abs(Number(balance) || 0)}
+  </p>
+</div>
       </div>
 
       <nav className="max-w-5xl mx-auto px-4 mt-6 no-print">
@@ -187,13 +253,21 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
         <p className="text-xs text-gray-500">Total Paid</p>
       </div>
       
-      {/* Balance */}
-      <div className="bg-white rounded-xl p-4 shadow-sm border text-center">
-        <p className={`text-2xl font-bold ${balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-          Rs. {Number(balance) || 0}
-        </p>
-        <p className="text-xs text-gray-500">Balance</p>
-      </div>
+   {/* Balance */}
+<div className="bg-white rounded-xl p-4 shadow-sm border text-center">
+  <p className={`text-2xl font-bold ${
+    Number(balance) > 0 ? 'text-red-600' : 
+    Number(balance) < 0 ? 'text-blue-600' : 
+    'text-gray-600'
+  }`}>
+    Rs. {Math.abs(Number(balance) || 0)}
+  </p>
+  <p className="text-xs text-gray-500">
+    {Number(balance) > 0 ? 'Outstanding Balance' : 
+     Number(balance) < 0 ? 'Advance Payment' : 
+     'Balance'}
+  </p>
+</div>
     </div>
 
     {/* Rejected Orders Alert */}
@@ -325,7 +399,7 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
   <div className="space-y-3">
     <h2 className="text-xl font-bold text-gray-800 mb-4">🧾 My Bills & Orders</h2>
     
-    {/* 🔴 Cancelled Orders ka Alert Banner */}
+    {/* Cancelled Orders Alert */}
     {firebaseOrders.filter((o: any) => o.status === 'Cancelled').length > 0 && (
       <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 mb-4">
         <div className="flex items-start gap-3">
@@ -341,7 +415,7 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
       </div>
     )}
     
-    {/* Admin ke banaye hue bills */}
+    {/* Admin Bills */}
     {[...sales].reverse().map(sale => (
       <div key={sale.id} className="bg-white rounded-xl p-4 shadow-sm border">
         <div className="flex justify-between items-start">
@@ -359,9 +433,8 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
       </div>
     ))}
 
-    {/* Online Orders - Ab sab dikhenge (Pending, Completed, Cancelled) */}
+    {/* Online Orders - SAB dikhayein */}
     {firebaseOrders.map((order: any) => {
-      // Status ke hisaab se styling
       const statusConfig = {
         'Pending': { bg: 'bg-yellow-100', text: 'text-yellow-700', border: 'border-yellow-300', label: ' Pending - Admin dekh raha hai' },
         'Completed': { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-300', label: '✅ Completed - Delivery ho gayi' },
@@ -381,11 +454,10 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
                 {config.label}
               </span>
               
-              {/* 🔴 Cancelled Order ka Special Message */}
               {order.status === 'Cancelled' && (
                 <div className="mt-3 p-3 bg-red-50 rounded-lg border border-red-200">
                   <p className="text-red-700 text-sm font-medium">
-                    ️ Yeh order admin ne reject kar diya hai. Iski delivery nahi hogi. 
+                    ⚠️ Yeh order admin ne reject kar diya hai. Iski delivery nahi hogi. 
                     Agar aapko koi masla hai toh hum se rabta karein.
                   </p>
                 </div>
@@ -415,7 +487,7 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
                   cashReceived: 0,
                   balance: order.totalAmount,
                   source: 'customer'
-                })} className="mt-2 text-xs bg-green-100 text-green-600 px-3 py-1 rounded-full">️ Print Bill</button>
+                })} className="mt-2 text-xs bg-green-100 text-green-600 px-3 py-1 rounded-full">🖨️ Print Bill</button>
               )}
             </div>
           </div>
