@@ -113,7 +113,7 @@ export default function OnlineOrders() {
       ) : (
         <div className="space-y-4">
           {orders.map(order => {
-            <p className="text-sm text-gray-600">👤 {customer?.name || order.customerName} | 📞 {order.customerPhone}</p>
+               <p className="text-sm text-gray-600">👤 {order.customerName} | 📞 {order.customerPhone}</p>
             return (
               <div key={order.id} className="bg-white rounded-xl shadow-sm border p-4">
                 <div className="flex justify-between items-start mb-3">
