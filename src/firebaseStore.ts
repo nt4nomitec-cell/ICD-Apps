@@ -144,3 +144,39 @@ export async function testFirebaseConnection() {
     alert('Firebase Test Failed: ' + error.message);
   }
 }
+// ============ LEDGER BY CUSTOMER ============
+export async function getLedgerByCustomerFB(customerId: string): Promise<LedgerEntry[]> {
+  const snapshot = await getDocs(collection(db, 'ledger'));
+  return snapshot.docs
+    .map(d => ({ id: d.id, ...d.data() } as LedgerEntry))
+    .filter(entry => entry.customerId === customerId);
+}
+
+// ============ CALCULATE BALANCE ============
+export async function calculateCustomerBalanceFB(customerId: string): Promise<number> {
+  const entries = await getLedgerByCustomerFB(customerId);
+  let balance = 0;
+  entries.forEach(entry => {
+    balance += (entry.debit || 0) - (entry.credit || 0);
+  });
+  return balance;
+}
+// ============ CASH PAYMENT ============
+export async function addCashPaymentFB(customerId: string, amount: number): Promise<void> {
+  // Pehle current balance calculate karein
+  const entries = await getLedgerByCustomerFB(customerId);
+  const currentBalance = entries.reduce((sum, entry) => 
+    sum + (entry.debit || 0) - (entry.credit || 0), 0);
+  
+  // Ledger mein credit entry add karein
+  await addDoc(collection(db, 'ledger'), {
+    customerId: customerId,
+    date: new Date().toISOString().split('T')[0],
+    description: 'Cash Payment Received',
+    debit: 0,
+    credit: amount,
+    balance: currentBalance - amount
+  });
+  
+  console.log('✅ Cash payment recorded:', amount);
+}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Customer, Product, SaleItem } from '../types';
-import { getCustomers, getProducts, addSale, generateBillNumber, calculateCustomerBalance } from '../store';
+import { getCustomersFB, getProductsFB, addSaleFB, addLedgerEntryFB, updateProductFB } from '../firebaseStore';
+import { generateBillNumber } from '../store';
 
 export default function SalesEntry() {
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -12,26 +13,21 @@ export default function SalesEntry() {
   const [lastBill, setLastBill] = useState<any>(null);
 
   useEffect(() => {
-    setCustomers(getCustomers());
-    setProducts(getProducts());
+    getCustomersFB().then(setCustomers);
+    getProductsFB().then(setProducts);
   }, []);
 
-    const addItem = (productId: string) => {
+  const addItem = (productId: string) => {
     const product = products.find(p => p.id === productId);
     if (!product) return;
-    
-    // Check: Agar stock 0 hai
     if (product.stock <= 0) {
       alert('Maaf karein, is item ka stock khatam ho gaya hai!');
       return;
     }
-
     const existing = items.find(i => i.productId === productId);
-    
-    // Check: Agar user stock se zyada add karne ki koshish kare
     if (existing) {
       if (existing.quantity + 1 > product.stock) {
-        alert(`Sirf ${product.stock} items available hain! Aap is se zyada add nahi kar sakte.`);
+        alert(`Sirf ${product.stock} items available hain!`);
         return;
       }
       setItems(items.map(i => i.productId === productId
@@ -41,15 +37,12 @@ export default function SalesEntry() {
     }
   };
 
-    const updateQuantity = (productId: string, qty: number) => {
+  const updateQuantity = (productId: string, qty: number) => {
     const product = products.find(p => p.id === productId);
     if (!product) return;
-
     if (qty <= 0) { 
       setItems(items.filter(i => i.productId !== productId)); 
-    }
-    else { 
-      // Check: Agar user stock se zyada quantity set karne ki koshish kare
+    } else { 
       if (qty > product.stock) {
         alert(`Sirf ${product.stock} items available hain!`);
         return;
@@ -59,46 +52,103 @@ export default function SalesEntry() {
   };
 
   const totalAmount = items.reduce((sum, item) => sum + item.total, 0);
-   // Naye lines yahan add karein (totalAmount ke baad):
-  const previousBalance = selectedCustomer ? calculateCustomerBalance(selectedCustomer) : 0;
-  const currentBalance = totalAmount - cashReceived;
-  const finalBalance = previousBalance + currentBalance;
-  //const balance = totalAmount - cashReceived;
 
-  const handleSubmit = () => {
-    if (!selectedCustomer) { alert('Customer select karein!'); return; }
-    if (items.length === 0) { alert('Kam az kam ek item add karein!'); return; }
-    const billNumber = generateBillNumber();
-        const sale = { 
-      id: Date.now().toString(), 
-      customerId: selectedCustomer, 
-      items, 
-      totalAmount, 
-      cashReceived, 
-      balance: currentBalance, 
-      previousBalance: previousBalance, 
-      finalBalance: finalBalance, 
-      date: new Date().toISOString().split('T')[0], 
-      billNumber 
-    };
-    addSale(sale);
+  const handleSubmit = async () => {
+  if (!selectedCustomer) { alert('Customer select karein!'); return; }
+  if (items.length === 0) { alert('Kam az kam ek item add karein!'); return; }
+  
+  // 🔴 Pehle stock check karein (Double verification)
+  for (const item of items) {
+    const product = products.find(p => p.id === item.productId);
+    if (!product) {
+      alert('Product nahi mila: ' + item.productName);
+      return;
+    }
+    if (product.stock < item.quantity) {
+      alert(`❌ Stock khatam! ${product.name} ke sirf ${product.stock} bottles hain, aap ${item.quantity} ka bill bana rahe hain!`);
+      return;
+    }
+  }
+  
+  const billNumber = generateBillNumber();
+  const sale = { 
+    id: Date.now().toString(), 
+    customerId: selectedCustomer, 
+    items, 
+    totalAmount, 
+    cashReceived, 
+    balance: totalAmount - cashReceived, 
+    date: new Date().toISOString().split('T')[0], 
+    billNumber 
+  };
+  
+  try {
+    // 1. Sale Firebase mein save karein
+    await addSaleFB(sale);
+    
+    // 2. 🔴 Har product ka stock Firebase mein UPDATE karein
+    for (const item of items) {
+      const product = products.find(p => p.id === item.productId);
+      if (product) {
+        const newStock = product.stock - item.quantity;
+        await updateProductFB(product.id, { stock: newStock });
+        console.log(`✅ ${product.name} ka stock update: ${product.stock} → ${newStock}`);
+      }
+    }
+    
+    // 3. Ledger entries banayein
+    await addLedgerEntryFB({
+      customerId: selectedCustomer,
+      date: sale.date,
+      description: 'Bill #' + billNumber + ' - Sale',
+      debit: totalAmount,
+      credit: 0,
+      balance: totalAmount - cashReceived,
+    });
+    
+    if (cashReceived > 0) {
+      await addLedgerEntryFB({
+        customerId: selectedCustomer,
+        date: sale.date,
+        description: 'Bill #' + billNumber + ' - Cash Received',
+        debit: 0,
+        credit: cashReceived,
+        balance: totalAmount - cashReceived,
+      });
+    }
+    
+    // 4. Local state update karein (turant UI refresh ke liye)
+    setProducts(products.map(p => {
+      const item = items.find(i => i.productId === p.id);
+      if (item) return { ...p, stock: p.stock - item.quantity };
+      return p;
+    }));
+    
     setLastBill({ ...sale, customerName: customers.find(c => c.id === selectedCustomer)?.name });
     setShowBill(true);
-    setItems([]); setCashReceived(0); setSelectedCustomer('');
-  };
+    setItems([]); 
+    setCashReceived(0); 
+    setSelectedCustomer('');
+    
+    alert('✅ Sale save ho gayi aur stock update ho gaya!');
+  } catch (error) {
+    console.error('Sale save karne mein error:', error);
+    alert(' Sale save karne mein masla aa gaya!');
+  }
+};
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">📝 New Sale Entry</h2>
+      <h2 className="text-2xl font-bold text-gray-800 mb-6"> New Sale Entry</h2>
       {showBill && lastBill && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl p-6 w-full max-w-md" id="bill-print">
-           <div className="text-center border-b pb-4 mb-4">
-  <img src="/logo-new.png" alt="ICD Logo" className="h-20 w-20 object-contain mx-auto mb-2" />
-  <h2 className="text-2xl font-bold text-blue-600">ICD</h2>
-  <p className="text-sm text-gray-500">Ismail Cold Drinks - Wholesale</p>
-  <p className="text-xs text-gray-400">Bill #{lastBill.billNumber}</p>
-</div>
+            <div className="text-center border-b pb-4 mb-4">
+              <img src="/logo-new.png" alt="ICD Logo" className="h-20 w-20 object-contain mx-auto mb-2" />
+              <h2 className="text-2xl font-bold text-blue-600">ICD</h2>
+              <p className="text-sm text-gray-500">Ismail Cold Drinks - Wholesale</p>
+              <p className="text-xs text-gray-400">Bill #{lastBill.billNumber}</p>
+            </div>
             <div className="mb-4">
               <p className="font-semibold">{lastBill.customerName}</p>
               <p className="text-sm text-gray-500">Date: {lastBill.date}</p>
@@ -111,18 +161,11 @@ export default function SalesEntry() {
                 ))}
               </tbody>
             </table>
-                        <div className="border-t pt-3 space-y-2">
-              {lastBill.previousBalance > 0 && (
-                <div className="flex justify-between text-orange-600 text-sm font-medium">
-                  <span>Purana Udhaar:</span>
-                  <span>Rs. {lastBill.previousBalance}</span>
-                </div>
-              )}
-              <div className="flex justify-between font-semibold"><span>Naya Bill Total:</span><span>Rs. {lastBill.totalAmount}</span></div>
+            <div className="border-t pt-3 space-y-2">
+              <div className="flex justify-between font-semibold"><span>Total:</span><span>Rs. {lastBill.totalAmount}</span></div>
               <div className="flex justify-between text-green-600"><span>Cash Received:</span><span>Rs. {lastBill.cashReceived}</span></div>
               <div className="flex justify-between font-bold text-lg border-t pt-2 mt-2 text-red-700">
-                <span>Kul Udhaar (Total):</span>
-                <span>Rs. {lastBill.finalBalance}</span>
+                <span>Balance:</span><span>Rs. {lastBill.balance}</span>
               </div>
             </div>
             <div className="flex gap-3 mt-6">
@@ -148,7 +191,7 @@ export default function SalesEntry() {
               {products.map(product => (
                 <div key={product.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
                   <div><p className="font-medium text-sm">{product.name}</p><p className="text-xs text-gray-500">Rs. {product.price} | Stock: {product.stock}</p></div>
-                  <button onClick={() => addItem(product.id)} disabled={product.stock <= 0 || (items.find(i => i.productId === product.id)?.quantity || 0) >= product.stock}
+                  <button onClick={() => addItem(product.id)} disabled={product.stock <= 0}
                     className="bg-blue-600 text-white px-3 py-1 rounded-lg text-sm hover:bg-blue-700 disabled:bg-gray-300">+ Add</button>
                 </div>
               ))}
@@ -182,9 +225,9 @@ export default function SalesEntry() {
                 <input type="number" value={cashReceived} onChange={(e) => setCashReceived(Number(e.target.value))}
                   className="w-full px-3 py-2 border rounded-lg" placeholder="Cash amount" />
               </div>
-                            <div className="flex justify-between text-lg font-bold border-t pt-2">
-                <span className="text-red-700">Kul Udhaar (Total):</span>
-                <span className={finalBalance > 0 ? 'text-red-600' : 'text-green-600'}>Rs. {finalBalance}</span>
+              <div className="flex justify-between text-lg font-bold border-t pt-2">
+                <span className="text-red-700">Balance:</span>
+                <span className={totalAmount - cashReceived > 0 ? 'text-red-600' : 'text-green-600'}>Rs. {totalAmount - cashReceived}</span>
               </div>
             </div>
             <button onClick={handleSubmit} className="w-full mt-4 bg-gradient-to-r from-green-500 to-green-600 text-white py-3 rounded-lg font-semibold hover:opacity-90">

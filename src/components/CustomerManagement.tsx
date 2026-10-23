@@ -1,57 +1,110 @@
 import { useState, useEffect } from 'react';
 import { Customer } from '../types';
-import { getCustomers, addCustomer, updateCustomer, deleteCustomer } from '../store';
+import { getCustomersFB, addCustomerFB, updateCustomerFB, deleteCustomerFB, addLedgerEntryFB } from '../firebaseStore'; // addLedgerEntryFB add kiya hai
 
 export default function CustomerManagement() {
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
-  const [form, setForm] = useState({ name: '', phone: '', address: '', password: '' });
+  
+  // Form state mein openingBalance add kar diya hai
+  const [form, setForm] = useState({ name: '', phone: '', address: '', password: '', openingBalance: '' });
 
   useEffect(() => { loadCustomers(); }, []);
 
-  const loadCustomers = () => { setCustomers(getCustomers()); };
+  const loadCustomers = async () => {
+    setLoading(true);
+    try {
+      const data = await getCustomersFB();
+      setCustomers(data);
+    } catch (error) {
+      console.error("Customers load karne mein error:", error);
+    }
+    setLoading(false);
+  };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!form.name || !form.phone || !form.password) {
       alert('Name, Phone aur Password zaroori hai!');
       return;
     }
-    if (editingCustomer) {
-      updateCustomer({ ...editingCustomer, ...form });
-    } else {
-      const newCustomer: Customer = {
-        id: Date.now().toString(),
-        name: form.name, phone: form.phone,
-        address: form.address, password: form.password,
-        createdAt: new Date().toISOString(),
-      };
-      addCustomer(newCustomer);
+    try {
+      if (editingCustomer) {
+        // Edit karte waqt sirf basic info update karein
+        await updateCustomerFB(editingCustomer.id, {
+          name: form.name, phone: form.phone, address: form.address, password: form.password
+        });
+      } else {
+        // Naya Customer Add karein
+        const newCustomerData = {
+          name: form.name,
+          phone: form.phone,
+          address: form.address,
+          password: form.password,
+          createdAt: new Date().toISOString(),
+        };
+        
+        // Firebase mein customer save karein aur ID lein
+        const newCustomerId = await addCustomerFB(newCustomerData);
+        
+        // Agar Opening Balance (Purana Hisab) dala hai, toh usko Ledger mein save karein
+        const openingBal = parseFloat(form.openingBalance);
+        if (openingBal > 0) {
+          await addLedgerEntryFB({
+            customerId: newCustomerId,
+            date: new Date().toISOString().split('T')[0],
+            description: 'Opening Balance (Purana Hisab)',
+            debit: openingBal,
+            credit: 0,
+            balance: openingBal
+          });
+          console.log('✅ Opening Balance ledger mein save ho gaya!');
+        }
+      }
+      
+      // Form reset karein
+      setForm({ name: '', phone: '', address: '', password: '', openingBalance: '' });
+      setShowForm(false);
+      setEditingCustomer(null);
+      loadCustomers(); // List refresh karein
+    } catch (error) {
+      console.error("Customer save karne mein error:", error);
+      alert("Save karne mein masla aa gaya!");
     }
-    setForm({ name: '', phone: '', address: '', password: '' });
-    setShowForm(false);
-    setEditingCustomer(null);
-    loadCustomers();
   };
 
   const handleEdit = (customer: Customer) => {
     setEditingCustomer(customer);
-    setForm({ name: customer.name, phone: customer.phone, address: customer.address, password: customer.password });
+    setForm({ 
+      name: customer.name, 
+      phone: customer.phone, 
+      address: customer.address, 
+      password: customer.password,
+      openingBalance: '' // Edit karte waqt balance field khali rakhein taake double entry na ho
+    });
     setShowForm(true);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('Kya aap waqai is customer ko delete karna chahte hain?')) {
-      deleteCustomer(id);
-      loadCustomers();
+      try {
+        await deleteCustomerFB(id);
+        loadCustomers();
+      } catch (error) {
+        console.error("Delete karne mein error:", error);
+        alert("Delete karne mein masla aa gaya!");
+      }
     }
   };
+
+  if (loading) return <div className="p-8 text-center text-gray-500">Customers load ho rahe hain...</div>;
 
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-800">👥 Customer Management</h2>
-        <button onClick={() => { setShowForm(true); setEditingCustomer(null); setForm({ name: '', phone: '', address: '', password: '' }); }}
+        <button onClick={() => { setShowForm(true); setEditingCustomer(null); setForm({ name: '', phone: '', address: '', password: '', openingBalance: '' }); }}
           className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2">
           ➕ Add Customer
         </button>
@@ -69,6 +122,12 @@ export default function CustomerManagement() {
                 className="w-full px-3 py-2 border rounded-lg" placeholder="Address" />
               <input type="text" value={form.password} onChange={(e) => setForm({...form, password: e.target.value})}
                 className="w-full px-3 py-2 border rounded-lg" placeholder="Password *" />
+              
+              {/* Yeh Naya Field Sirf Naya Customer Add Karte Waqt Dikhega */}
+              {!editingCustomer && (
+                <input type="number" value={form.openingBalance} onChange={(e) => setForm({...form, openingBalance: e.target.value})}
+                  className="w-full px-3 py-2 border-2 border-orange-200 rounded-lg bg-orange-50" placeholder="Opening Balance (Purana Hisab - Optional)" />
+              )}
             </div>
             <div className="flex gap-3 mt-6">
               <button onClick={handleSubmit} className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">
@@ -91,7 +150,7 @@ export default function CustomerManagement() {
                 <div>
                   <h3 className="font-bold text-lg">{customer.name}</h3>
                   <p className="text-gray-600 text-sm">📞 {customer.phone}</p>
-                  {customer.address && <p className="text-gray-500 text-sm">📍 {customer.address}</p>}
+                  {customer.address && <p className="text-gray-500 text-sm"> {customer.address}</p>}
                   <p className="text-gray-400 text-xs mt-1">🔑 Login: {customer.phone} / {customer.password}</p>
                 </div>
                 <div className="flex gap-2">
@@ -106,4 +165,3 @@ export default function CustomerManagement() {
     </div>
   );
 }
-

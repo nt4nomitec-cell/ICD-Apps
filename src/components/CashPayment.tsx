@@ -1,22 +1,50 @@
 import { useState, useEffect } from 'react';
 import { Customer } from '../types';
-import { getCustomers, addCashPayment, calculateCustomerBalance } from '../store';
+import { getCustomersFB, calculateCustomerBalanceFB, addCashPaymentFB } from '../firebaseStore';
 
 export default function CashPayment() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState('');
   const [amount, setAmount] = useState(0);
   const [success, setSuccess] = useState(false);
+  const [currentBalance, setCurrentBalance] = useState(0);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => { setCustomers(getCustomers()); }, []);
+  useEffect(() => { 
+    getCustomersFB().then(setCustomers); 
+  }, []);
 
-  const handleSubmit = () => {
+  // Jab customer select ho, uska balance load karein
+  useEffect(() => {
+    if (selectedCustomer) {
+      calculateCustomerBalanceFB(selectedCustomer).then(setCurrentBalance);
+    } else {
+      setCurrentBalance(0);
+    }
+  }, [selectedCustomer]);
+
+  const handleSubmit = async () => {
     if (!selectedCustomer) { alert('Customer select karein!'); return; }
     if (amount <= 0) { alert('Amount zaroori hai!'); return; }
-    addCashPayment(selectedCustomer, amount);
-    setSuccess(true); setAmount(0); setSelectedCustomer('');
-    setTimeout(() => setSuccess(false), 3000);
-    setCustomers(getCustomers());
+    
+    setLoading(true);
+    try {
+      await addCashPaymentFB(selectedCustomer, amount);
+      setSuccess(true);
+      setAmount(0);
+      setSelectedCustomer('');
+      setCurrentBalance(0);
+      
+      // Balance refresh karein
+      const newBalance = await calculateCustomerBalanceFB(selectedCustomer);
+      setCurrentBalance(newBalance);
+      
+      setTimeout(() => setSuccess(false), 3000);
+    } catch (error) {
+      console.error("Cash payment error:", error);
+      alert('Cash payment save karne mein masla aa gaya!');
+    }
+    setLoading(false);
   };
 
   return (
@@ -30,13 +58,13 @@ export default function CashPayment() {
               <label className="block text-sm font-medium text-gray-700 mb-2">Select Customer *</label>
               <select value={selectedCustomer} onChange={(e) => setSelectedCustomer(e.target.value)} className="w-full px-3 py-3 border rounded-lg">
                 <option value="">-- Customer Select Karein --</option>
-                {customers.map(c => <option key={c.id} value={c.id}>{c.name} (Balance: Rs. {calculateCustomerBalance(c.id)})</option>)}
+                {customers.map(c => <option key={c.id} value={c.id}>{c.name} ({c.phone})</option>)}
               </select>
             </div>
             {selectedCustomer && (
-              <div className={`p-3 rounded-lg ${calculateCustomerBalance(selectedCustomer) > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
+              <div className={`p-3 rounded-lg ${currentBalance > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
                 <p className="text-sm text-gray-600">Current Balance:</p>
-                <p className={`text-xl font-bold ${calculateCustomerBalance(selectedCustomer) > 0 ? 'text-red-600' : 'text-green-600'}`}>Rs. {calculateCustomerBalance(selectedCustomer)}</p>
+                <p className={`text-xl font-bold ${currentBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>Rs. {currentBalance}</p>
               </div>
             )}
             <div>
@@ -44,8 +72,9 @@ export default function CashPayment() {
               <input type="number" value={amount} onChange={(e) => setAmount(Number(e.target.value))}
                 className="w-full px-3 py-3 border rounded-lg text-lg" placeholder="Enter cash amount" />
             </div>
-            <button onClick={handleSubmit} className="w-full bg-gradient-to-r from-green-500 to-green-600 text-white py-3 rounded-lg font-semibold hover:opacity-90 text-lg">
-              💰 Record Cash Payment
+            <button onClick={handleSubmit} disabled={loading} 
+              className="w-full bg-gradient-to-r from-green-500 to-green-600 text-white py-3 rounded-lg font-semibold hover:opacity-90 text-lg disabled:bg-gray-400">
+              {loading ? 'Saving...' : ' Record Cash Payment'}
             </button>
           </div>
         </div>
@@ -53,5 +82,3 @@ export default function CashPayment() {
     </div>
   );
 }
-
-

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
-import { getCustomerById, getLedgerByCustomer, calculateCustomerBalance, getSalesByCustomer, getProducts } from '../store';
+import { getCustomersFB, getLedgerByCustomerFB, calculateCustomerBalanceFB, getProductsFB, getSalesFB } from '../firebaseStore';
 import { Customer, SaleEntry, LedgerEntry, Product } from '../types';
 
 interface CustomerDashboardProps { customerId: string; onLogout: () => void; }
@@ -15,7 +15,6 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
   const [selectedBill, setSelectedBill] = useState<any>(null);
   const [firebaseOrders, setFirebaseOrders] = useState<any[]>([]);
 
-  // New Order States
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<any[]>([]);
   const [orderAddress, setOrderAddress] = useState('');
@@ -23,17 +22,47 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
   const [orderSuccess, setOrderSuccess] = useState(false);
 
   useEffect(() => {
-    const c = getCustomerById(customerId);
-    if (c) {
-      setCustomer(c);
-      setLedger(getLedgerByCustomer(customerId));
-      setSales(getSalesByCustomer(customerId));
-      setBalance(calculateCustomerBalance(customerId));
-      setProducts(getProducts());
-      setOrderAddress(c.address || '');
-      if (c.phone) loadFirebaseOrders(c.phone);
+  const loadCustomerData = async () => {
+    try {
+      const allCustomers = await getCustomersFB();
+      const c = allCustomers.find(cust => cust.id === customerId);
+      
+      if (c) {
+        setCustomer(c);
+        
+        const ledgerData = await getLedgerByCustomerFB(customerId);
+        setLedger(ledgerData);
+        
+        const allSales = await getSalesFB();
+        const customerSales = allSales.filter(s => s.customerId === customerId);
+        setSales(customerSales);
+        
+        if (c.phone) {
+          const ordersQuery = query(collection(db, "orders"), where("customerPhone", "==", c.phone));
+          const ordersSnapshot = await getDocs(ordersQuery);
+          // 🔴 Ab saare orders load karein (Pending, Completed, Cancelled) - sirf completed nahi
+          const allOrders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          allOrders.sort((a: any, b: any) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+          setFirebaseOrders(allOrders);
+          
+          // Balance calculation - sirf completed orders aur ledger se
+          const completedOrders = allOrders.filter((o: any) => o.status === 'Completed');
+          const totalDebit = ledgerData.reduce((sum, entry) => sum + (entry.debit || 0), 0);
+          const totalCredit = ledgerData.reduce((sum, entry) => sum + (entry.credit || 0), 0);
+          setBalance(totalDebit - totalCredit);
+        }
+        
+        const productsData = await getProductsFB();
+        setProducts(productsData);
+        setOrderAddress(c.address || '');
+      }
+    } catch (error) {
+      console.error("Customer data load karne mein error:", error);
     }
-  }, [customerId]);
+  };
+  
+  loadCustomerData();
+}, [customerId]);
 
   const loadFirebaseOrders = async (phone: string) => {
     try {
@@ -47,7 +76,6 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
     }
   };
 
-  // Cart Functions
   const addToCart = (product: Product) => {
     if (product.stock <= 0) { alert('Stock khatam hai!'); return; }
     const existing = cart.find(i => i.id === product.id);
@@ -110,7 +138,6 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -124,7 +151,6 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
         </div>
       </header>
 
-      {/* Balance Card */}
       <div className="max-w-5xl mx-auto px-4 -mt-4">
         <div className={`rounded-xl p-6 shadow-lg ${balance > 0 ? 'bg-gradient-to-r from-red-500 to-red-600' : 'bg-gradient-to-r from-green-500 to-green-600'} text-white`}>
           <p className="text-sm opacity-80">Your Outstanding Balance</p>
@@ -132,7 +158,6 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
         </div>
       </div>
 
-      {/* Tabs */}
       <nav className="max-w-5xl mx-auto px-4 mt-6 no-print">
         <div className="flex gap-1 bg-white rounded-xl p-1 shadow-sm border">
           {[
@@ -150,31 +175,68 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
       </nav>
 
       <main className="max-w-5xl mx-auto px-4 py-6">
-        {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-white rounded-xl p-4 shadow-sm border text-center">
-                <p className="text-2xl font-bold text-blue-600">{sales.length + firebaseOrders.length}</p>
-                <p className="text-xs text-gray-500">Total Orders</p>
-              </div>
-              <div className="bg-white rounded-xl p-4 shadow-sm border text-center">
-                <p className="text-2xl font-bold text-purple-600">Rs. {sales.reduce((s, x) => s + x.totalAmount, 0) + firebaseOrders.reduce((s: number, x: any) => s + (x.totalAmount || 0), 0)}</p>
-                <p className="text-xs text-gray-500">Total Purchases</p>
-              </div>
-              <div className="bg-white rounded-xl p-4 shadow-sm border text-center">
-                <p className="text-2xl font-bold text-green-600">Rs. {sales.reduce((s, x) => s + x.cashReceived, 0)}</p>
-                <p className="text-xs text-gray-500">Total Paid</p>
-              </div>
-              <div className="bg-white rounded-xl p-4 shadow-sm border text-center">
-                <p className={`text-2xl font-bold ${balance > 0 ? 'text-red-600' : 'text-green-600'}`}>Rs. {balance}</p>
-                <p className="text-xs text-gray-500">Balance</p>
-              </div>
+  <div className="space-y-4">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* Active Orders - Cancelled orders exclude */}
+      <div className="bg-white rounded-xl p-4 shadow-sm border text-center">
+        <p className="text-2xl font-bold text-blue-600">
+          {sales.length + firebaseOrders.filter((o: any) => o.status !== 'Cancelled').length}
+        </p>
+        <p className="text-xs text-gray-500">Active Orders</p>
+      </div>
+      
+      {/* Total Purchases - Sirf ledger se */}
+      <div className="bg-white rounded-xl p-4 shadow-sm border text-center">
+        <p className="text-2xl font-bold text-purple-600">
+          Rs. {ledger.reduce((sum, entry) => sum + (entry.debit || 0), 0)}
+        </p>
+        <p className="text-xs text-gray-500">Total Purchases</p>
+      </div>
+      
+      {/* Total Paid - Sirf ledger se credit entries */}
+      <div className="bg-white rounded-xl p-4 shadow-sm border text-center">
+        <p className="text-2xl font-bold text-green-600">
+          Rs. {ledger.reduce((sum, entry) => sum + (entry.credit || 0), 0)}
+        </p>
+        <p className="text-xs text-gray-500">Total Paid</p>
+      </div>
+      
+      {/* Balance - Ledger se */}
+      <div className="bg-white rounded-xl p-4 shadow-sm border text-center">
+        <p className={`text-2xl font-bold ${balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+          Rs. {balance}
+        </p>
+        <p className="text-xs text-gray-500">Balance</p>
+      </div>
+    </div>
+
+    {/* 🔴 Rejected Orders Card - Sirf tab dikhega jab koi cancelled order ho */}
+    {firebaseOrders.filter((o: any) => o.status === 'Cancelled').length > 0 && (
+      <div className="bg-red-50 rounded-xl p-4 shadow-sm border-2 border-red-200">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">⚠️</span>
+            <div className="text-left">
+              <p className="text-lg font-bold text-red-700">
+                {firebaseOrders.filter((o: any) => o.status === 'Cancelled').length} Rejected Order{firebaseOrders.filter((o: any) => o.status === 'Cancelled').length > 1 ? 's' : ''}
+              </p>
+              <p className="text-sm text-red-600">
+                Aapke kuch orders admin ne cancel kar diye hain. Details ke liye "My Bills" tab dekhein.
+              </p>
             </div>
           </div>
-        )}
+          <button 
+            onClick={() => setActiveTab('bills')}
+            className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700">
+            View Details →
+          </button>
+        </div>
+      </div>
+    )}
+  </div>
+)}
 
-        {/* NEW ORDER TAB */}
         {activeTab === 'order' && (
           <div className="grid md:grid-cols-2 gap-6">
             <div className="bg-white rounded-xl shadow-sm border p-4">
@@ -217,7 +279,7 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
                 )}
               </div>
               <div className="bg-white rounded-xl shadow-sm border p-4">
-                <h2 className="text-xl font-bold mb-4"> Delivery Address</h2>
+                <h2 className="text-xl font-bold mb-4">📍 Delivery Address</h2>
                 <textarea value={orderAddress} onChange={(e) => setOrderAddress(e.target.value)} placeholder="Apna address likhein" className="w-full px-3 py-2 border rounded-lg" rows={3}></textarea>
                 <button onClick={placeOrder} disabled={orderLoading} className="w-full mt-4 bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 disabled:bg-gray-400">
                   {orderLoading ? 'Bhej Rahe Hain...' : '✅ Place Order'}
@@ -227,27 +289,19 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
           </div>
         )}
 
-        {/* LEDGER TAB */}
         {activeTab === 'ledger' && (
           <div id="customer-ledger-print" className="relative">
-            {/* Watermark */}
-            <div className="watermark">
-              <div className="watermark-text">PRINTED BY CUSTOMER</div>
-            </div>
-            
+            <div className="watermark"><div className="watermark-text">PRINTED BY CUSTOMER</div></div>
             <div className="flex justify-between items-center mb-4 no-print">
               <h2 className="text-xl font-bold text-gray-800">📒 My Ledger</h2>
-              <button onClick={() => window.print()} className="bg-blue-600 text-white px-4 py-2 rounded-lg">🖨️ Print Ledger</button>
+              <button onClick={() => window.print()} className="bg-blue-600 text-white px-4 py-2 rounded-lg">️ Print Ledger</button>
             </div>
-
-            {/* Ledger Header with Logo */}
             <div className="text-center border-b pb-4 mb-4">
               <img src="/logo-new.png" alt="ICD Logo" className="h-20 w-20 object-contain mx-auto mb-2" />
               <h2 className="text-2xl font-bold text-blue-600">ICD - Ismail Cold Drinks</h2>
               <p className="text-sm text-gray-500">Wholesale</p>
               <p className="text-sm text-gray-600 mt-2">Customer: <b>{customer.name}</b> | Phone: {customer.phone}</p>
             </div>
-
             <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
               <table className="w-full">
                 <thead className="bg-gray-50">
@@ -275,8 +329,6 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
                 </tbody>
               </table>
             </div>
-
-            {/* Signature */}
             <div className="text-center mt-6 pt-4 border-t">
               <p className="text-xs text-gray-500 font-medium">Powered by NomiTec</p>
               <p className="text-xs text-gray-400 mt-1 italic">⚠️ This ledger was printed by the customer, not by admin.</p>
@@ -284,104 +336,140 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
           </div>
         )}
 
-        {/* BILLS TAB */}
         {activeTab === 'bills' && (
-          <div className="space-y-3">
-            <h2 className="text-xl font-bold text-gray-800 mb-4">🧾 My Bills</h2>
-            
-            {[...sales].reverse().map(sale => (
-              <div key={sale.id} className="bg-white rounded-xl p-4 shadow-sm border">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-bold">Bill #{sale.billNumber}</p>
-                    <p className="text-sm text-gray-500">📅 {sale.date}</p>
-                    {sale.items.map((item, idx) => <p key={idx} className="text-xs text-gray-600">{item.productName} × {item.quantity} = Rs. {item.total}</p>)}
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold text-lg">Rs. {sale.totalAmount}</p>
-                    <p className="text-xs text-green-600">Paid: Rs. {sale.cashReceived}</p>
-                    <button onClick={() => setSelectedBill({ ...sale, source: 'admin' })} className="mt-2 text-xs bg-blue-100 text-blue-600 px-3 py-1 rounded-full">🖨️ Print Bill</button>
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            {firebaseOrders.map((order: any) => (
-              <div key={order.id} className="bg-white rounded-xl p-4 shadow-sm border border-green-200">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-bold">Online Order #{order.id.slice(0, 8).toUpperCase()}</p>
-                    <p className="text-sm text-gray-500"> {order.createdAt ? new Date(order.createdAt.seconds * 1000).toLocaleDateString() : 'Pending'}</p>
-                    <span className={`inline-block mt-1 px-2 py-1 rounded text-xs font-semibold ${order.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>{order.status}</span>
-                    {order.items && order.items.map((item: any, idx: number) => <p key={idx} className="text-xs text-gray-600">{item.name} × {item.qty} = Rs. {item.price * item.qty}</p>)}
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold text-lg">Rs. {order.totalAmount}</p>
-                    <button onClick={() => setSelectedBill({
-                      id: order.id,
-                      billNumber: `ONL-${order.id.slice(0, 8).toUpperCase()}`,
-                      date: order.createdAt ? new Date(order.createdAt.seconds * 1000).toLocaleDateString() : '',
-                      items: order.items.map((item: any) => ({
-                        productId: item.id,
-                        productName: item.name,
-                        quantity: item.qty,
-                        price: item.price,
-                        total: item.price * item.qty
-                      })),
-                      totalAmount: order.totalAmount,
-                      cashReceived: 0,
-                      balance: order.totalAmount,
-                      source: 'customer'
-                    })} className="mt-2 text-xs bg-green-100 text-green-600 px-3 py-1 rounded-full">🖨️ Print Bill</button>
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            {sales.length === 0 && firebaseOrders.length === 0 && (
-              <p className="text-gray-500 text-center py-8">Aapka koi bill nahi mila.</p>
-            )}
+  <div className="space-y-3">
+    <h2 className="text-xl font-bold text-gray-800 mb-4">🧾 My Bills & Orders</h2>
+    
+    {/* 🔴 Cancelled Orders ka Alert Banner */}
+    {firebaseOrders.filter((o: any) => o.status === 'Cancelled').length > 0 && (
+      <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 mb-4">
+        <div className="flex items-start gap-3">
+          <span className="text-3xl">⚠️</span>
+          <div>
+            <h3 className="font-bold text-red-700 text-lg">Aapke Kuch Orders Reject Ho Gaye Hain!</h3>
+            <p className="text-red-600 text-sm mt-1">
+              Neeche red color mein marked orders admin ne cancel kar diye hain. 
+              Inki delivery nahi hogi. Mazeed maloomat ke liye rabta karein.
+            </p>
           </div>
-        )}
+        </div>
+      </div>
+    )}
+    
+    {/* Admin ke banaye hue bills */}
+    {[...sales].reverse().map(sale => (
+      <div key={sale.id} className="bg-white rounded-xl p-4 shadow-sm border">
+        <div className="flex justify-between items-start">
+          <div>
+            <p className="font-bold">Bill #{sale.billNumber}</p>
+            <p className="text-sm text-gray-500">📅 {sale.date}</p>
+            {sale.items.map((item, idx) => <p key={idx} className="text-xs text-gray-600">{item.productName} × {item.quantity} = Rs. {item.total}</p>)}
+          </div>
+          <div className="text-right">
+            <p className="font-bold text-lg">Rs. {sale.totalAmount}</p>
+            <p className="text-xs text-green-600">Paid: Rs. {sale.cashReceived}</p>
+            <button onClick={() => setSelectedBill({ ...sale, source: 'admin' })} className="mt-2 text-xs bg-blue-100 text-blue-600 px-3 py-1 rounded-full">🖨️ Print Bill</button>
+          </div>
+        </div>
+      </div>
+    ))}
+
+    {/* Online Orders - Ab sab dikhenge (Pending, Completed, Cancelled) */}
+    {firebaseOrders.map((order: any) => {
+      // Status ke hisaab se styling
+      const statusConfig = {
+        'Pending': { bg: 'bg-yellow-100', text: 'text-yellow-700', border: 'border-yellow-300', label: ' Pending - Admin dekh raha hai' },
+        'Completed': { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-300', label: '✅ Completed - Delivery ho gayi' },
+        'Cancelled': { bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-300', label: '❌ Rejected - Order cancel ho gaya' }
+      };
+      const config = statusConfig[order.status as keyof typeof statusConfig] || statusConfig['Pending'];
+      
+      return (
+        <div key={order.id} className={`bg-white rounded-xl p-4 shadow-sm border-2 ${config.border}`}>
+          <div className="flex justify-between items-start">
+            <div className="flex-1">
+              <p className="font-bold">Online Order #{order.id.slice(0, 8).toUpperCase()}</p>
+              <p className="text-sm text-gray-500">
+                📅 {order.createdAt ? new Date(order.createdAt.seconds * 1000).toLocaleString() : 'Pending'}
+              </p>
+              <span className={`inline-block mt-1 px-3 py-1 rounded-full text-xs font-bold ${config.bg} ${config.text}`}>
+                {config.label}
+              </span>
+              
+              {/* 🔴 Cancelled Order ka Special Message */}
+              {order.status === 'Cancelled' && (
+                <div className="mt-3 p-3 bg-red-50 rounded-lg border border-red-200">
+                  <p className="text-red-700 text-sm font-medium">
+                    ️ Yeh order admin ne reject kar diya hai. Iski delivery nahi hogi. 
+                    Agar aapko koi masla hai toh hum se rabta karein.
+                  </p>
+                </div>
+              )}
+              
+              {order.items && order.items.map((item: any, idx: number) => (
+                <p key={idx} className="text-xs text-gray-600 mt-1">
+                  {item.name} × {item.qty} = Rs. {item.price * item.qty}
+                </p>
+              ))}
+            </div>
+            <div className="text-right ml-3">
+              <p className="font-bold text-lg">Rs. {order.totalAmount}</p>
+              {order.status !== 'Cancelled' && (
+                <button onClick={() => setSelectedBill({
+                  id: order.id,
+                  billNumber: `ONL-${order.id.slice(0, 8).toUpperCase()}`,
+                  date: order.createdAt ? new Date(order.createdAt.seconds * 1000).toLocaleDateString() : '',
+                  items: order.items.map((item: any) => ({
+                    productId: item.id,
+                    productName: item.name,
+                    quantity: item.qty,
+                    price: item.price,
+                    total: item.price * item.qty
+                  })),
+                  totalAmount: order.totalAmount,
+                  cashReceived: 0,
+                  balance: order.totalAmount,
+                  source: 'customer'
+                })} className="mt-2 text-xs bg-green-100 text-green-600 px-3 py-1 rounded-full">️ Print Bill</button>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    })}
+
+    {sales.length === 0 && firebaseOrders.length === 0 && (
+      <p className="text-gray-500 text-center py-8">Aapka koi bill ya order nahi mila.</p>
+    )}
+  </div>
+)}
       </main>
 
-            {/* Bill Print Modal */}
       {selectedBill && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl p-6 w-full max-w-sm relative" id="customer-bill-print">
-            
-            {/* Watermark (Sirf Print Mein Dikhega) */}
-            <div className="watermark">
-              <div className="watermark-text">PRINTED BY CUSTOMER</div>
-            </div>
-
+            <div className="watermark"><div className="watermark-text">PRINTED BY CUSTOMER</div></div>
             <div className="text-center border-b pb-4 mb-4">
               <img src="/logo-new.png" alt="ICD Logo" className="h-20 w-20 object-contain mx-auto mb-2" />
               <h2 className="text-2xl font-bold text-blue-600">ICD</h2>
               <p className="text-sm text-gray-500">Ismail Cold Drinks - Wholesale</p>
               <p className="text-xs text-gray-400">Bill #{selectedBill.billNumber}</p>
             </div>
-            
             <p className="font-semibold">{customer.name}</p>
             <p className="text-sm text-gray-500 mb-4">Date: {selectedBill.date}</p>
-            
             <table className="w-full text-sm mb-4">
               <thead><tr className="border-b"><th className="text-left py-1">Item</th><th className="text-center py-1">Qty</th><th className="text-right py-1">Amount</th></tr></thead>
               <tbody>{selectedBill.items.map((item: any, idx: number) => (<tr key={idx} className="border-b"><td className="py-1">{item.productName}</td><td className="text-center py-1">{item.quantity}</td><td className="text-right py-1">Rs. {item.total}</td></tr>))}</tbody>
             </table>
-            
             <div className="border-t pt-3 space-y-1">
               <div className="flex justify-between font-semibold"><span>Total:</span><span>Rs. {selectedBill.totalAmount}</span></div>
               <div className="flex justify-between text-green-600"><span>Cash:</span><span>Rs. {selectedBill.cashReceived}</span></div>
               <div className="flex justify-between font-bold border-t pt-2"><span>Balance:</span><span>Rs. {selectedBill.balance}</span></div>
             </div>
-
-            {/* Signature & Disclaimer */}
             <div className="text-center mt-4 pt-4 border-t">
               <p className="text-xs text-gray-500 font-medium">Powered by NomiTec</p>
               <p className="text-xs text-gray-400 mt-1 italic">⚠️ This bill was printed by the customer, not by admin.</p>
             </div>
-
             <div className="flex gap-3 mt-4 no-print">
               <button onClick={() => window.print()} className="flex-1 bg-blue-600 text-white py-2 rounded-lg">🖨️ Print Bill</button>
               <button onClick={() => setSelectedBill(null)} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg">Close</button>

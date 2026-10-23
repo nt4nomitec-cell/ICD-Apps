@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { getAdminPassword } from '../store';
-import { getCustomerByPhoneFB } from '../firebaseStore'; // ✅ Yeh import upar aa gayi
+import { getCustomerByPhoneFB } from '../firebaseStore';
 
 interface LoginProps {
   onLogin: (type: 'admin' | 'customer', customerId?: string) => void;
@@ -23,15 +23,28 @@ export default function Login({ onLogin }: LoginProps) {
 
   const handleCustomerLogin = async () => {
     try {
+      console.log('🔍 Login attempt - Phone:', phone, 'Password:', custPassword);
+      
       const customer = await getCustomerByPhoneFB(phone);
-      if (customer && customer.password === custPassword) {
+      
+      if (!customer) {
+        console.log('❌ Customer nahi mila is phone number se:', phone);
+        setError('Phone ya password galat hai!');
+        return;
+      }
+      
+      console.log('✅ Customer mila:', customer);
+      
+      if (customer.password === custPassword) {
+        console.log('✅ Login successful!');
         onLogin('customer', customer.id);
       } else {
+        console.log('❌ Password mismatch! Stored:', customer.password, 'Entered:', custPassword);
         setError('Phone ya password galat hai!');
       }
     } catch (error) {
+      console.error('❌ Login error:', error);
       setError('Login mein masla aa gaya!');
-      console.error(error);
     }
   };
 
@@ -39,8 +52,7 @@ export default function Login({ onLogin }: LoginProps) {
     <div className="min-h-screen bg-gradient-to-br from-blue-600 via-blue-700 to-cyan-500 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
         <div className="bg-gradient-to-r from-blue-600 to-cyan-500 p-8 text-center">
-          <div className="w-24 h-24 flex items-center justify-center mx-auto mb-4" 
-     style={{ filter: 'drop-shadow(0 0 15px rgba(255,255,255,0.8))' }}>
+          <div className="w-24 h-24 flex items-center justify-center mx-auto mb-4" style={{ filter: 'drop-shadow(0 0 15px rgba(255,255,255,0.8))' }}>
             <img src="/logo-new.png" alt="Ismail Cold Drinks" className="w-full h-full object-contain" />
           </div>
           <h1 className="text-3xl font-bold text-white">ICD</h1>
