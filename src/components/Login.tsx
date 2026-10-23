@@ -83,7 +83,10 @@ export default function Login({ onLogin }: LoginProps) {
                 className="w-full bg-gradient-to-r from-blue-600 to-cyan-500 text-white py-3 rounded-lg font-semibold hover:opacity-90">
                 Login as Admin
               </button>
-              <p className="text-xs text-gray-500 text-center mt-2">Powered by NomiTec</p>
+             <p className="text-xs text-gray-500 text-center mt-2 flex items-center justify-center gap-2">
+  Powered by NomiTec 
+  <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold tracking-wider">v1.0.0</span>
+</p>
             </div>
           ) : (
             <div className="space-y-4">

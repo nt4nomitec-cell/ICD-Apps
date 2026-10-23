@@ -163,7 +163,7 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
         {activeTab === 'overview' && (
   <div className="space-y-4">
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-      {/* Active Orders - Cancelled orders exclude */}
+      {/* Active Orders */}
       <div className="bg-white rounded-xl p-4 shadow-sm border text-center">
         <p className="text-2xl font-bold text-blue-600">
           {sales.length + firebaseOrders.filter((o: any) => o.status !== 'Cancelled').length}
@@ -171,32 +171,32 @@ export default function CustomerDashboard({ customerId, onLogout }: CustomerDash
         <p className="text-xs text-gray-500">Active Orders</p>
       </div>
       
-      {/* Total Purchases - Sirf ledger se */}
+      {/* Total Purchases - Number() force kar diya hai */}
       <div className="bg-white rounded-xl p-4 shadow-sm border text-center">
         <p className="text-2xl font-bold text-purple-600">
-          Rs. {ledger.reduce((sum, entry) => sum + (entry.debit || 0), 0)}
+          Rs. {ledger.reduce((sum, entry) => sum + (Number(entry.debit) || 0), 0)}
         </p>
         <p className="text-xs text-gray-500">Total Purchases</p>
       </div>
       
-      {/* Total Paid - Sirf ledger se credit entries */}
+      {/* Total Paid - Number() force kar diya hai */}
       <div className="bg-white rounded-xl p-4 shadow-sm border text-center">
         <p className="text-2xl font-bold text-green-600">
-          Rs. {ledger.reduce((sum, entry) => sum + (entry.credit || 0), 0)}
+          Rs. {ledger.reduce((sum, entry) => sum + (Number(entry.credit) || 0), 0)}
         </p>
         <p className="text-xs text-gray-500">Total Paid</p>
       </div>
       
-      {/* Balance - Ledger se */}
+      {/* Balance */}
       <div className="bg-white rounded-xl p-4 shadow-sm border text-center">
         <p className={`text-2xl font-bold ${balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-          Rs. {balance}
+          Rs. {Number(balance) || 0}
         </p>
         <p className="text-xs text-gray-500">Balance</p>
       </div>
     </div>
 
-    {/* 🔴 Rejected Orders Card - Sirf tab dikhega jab koi cancelled order ho */}
+    {/* Rejected Orders Alert */}
     {firebaseOrders.filter((o: any) => o.status === 'Cancelled').length > 0 && (
       <div className="bg-red-50 rounded-xl p-4 shadow-sm border-2 border-red-200">
         <div className="flex items-center justify-between">
