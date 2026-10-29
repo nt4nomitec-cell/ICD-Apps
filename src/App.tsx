@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { testFirebaseConnection } from './firebaseStore';
 import Login from './components/Login';
 import AdminDashboard from './components/AdminDashboard';
 import CustomerDashboard from './components/CustomerDashboard';
@@ -10,20 +9,10 @@ function App() {
   const [customerId, setCustomerId] = useState<string | null>(null);
 
   useEffect(() => {
-    // Sirf Firebase connection test karein, koi default data sync NA karein
-    const checkConnection = async () => {
-      try {
-        console.log('🔄 Firebase connection check ho raha hai...');
-        await testFirebaseConnection();
-        console.log('✅ Firebase successfully connected!');
-      } catch (error) {
-        console.error('❌ Firebase connection error:', error);
-      }
-    };
+    // 🔴 BILKUL KUCH AUTO-SYNC NAHI - Sirf session check
+    console.log('App loaded - No auto-sync');
 
-    checkConnection();
-
-    // Purani session check karein (agar user pehle se login hai)
+    // Purani session check karein
     const savedSession = sessionStorage.getItem('icd_session');
     if (savedSession) {
       try {
