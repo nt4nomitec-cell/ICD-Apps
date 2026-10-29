@@ -190,6 +190,43 @@ export default function BackupData() {
   reader.readAsText(file);
 };
 
+// Reset Database Function
+const handleResetDatabase = async () => {
+  const confirmMsg = `⚠️ DANGER: Yeh action Firebase ka SARA DATA DELETE kar dega!\n\n- Customers\n- Products\n- Sales\n- Ledger\n- Orders\n\nKya aap waqai yeh karna chahte hain?`;
+  
+  if (!window.confirm(confirmMsg)) return;
+  
+  const doubleConfirm = window.confirm('⚠️ LAST WARNING: SARA DATA DELETE HO JAYEGA! 100% sure hain?');
+  if (!doubleConfirm) return;
+
+  try {
+    setStatus('loading');
+    setProgress('🗑️ Database reset ho raha hai...');
+    
+    const collectionsToClear = ['customers', 'products', 'sales', 'ledger', 'orders'];
+    
+    for (const colName of collectionsToClear) {
+      const snapshot = await getDocs(collection(db, colName));
+      if (snapshot.size > 0) {
+        const batch = writeBatch(db);
+        snapshot.docs.forEach(d => batch.delete(doc(db, colName, d.id)));
+        await batch.commit();
+        console.log(`✅ ${colName} delete ho gayi`);
+      }
+    }
+    
+    setStatus('success');
+    setMessage('✅ Database reset ho gaya! Ab naya data add karein.');
+    setProgress('');
+    setTimeout(() => setStatus('idle'), 5000);
+  } catch (error) {
+    console.error('Reset error:', error);
+    setStatus('error');
+    setMessage('❌ Reset fail: ' + (error as Error).message);
+    setProgress('');
+  }
+};
+
   return (
     <div>
       <h2 className="text-2xl font-bold text-gray-800 mb-6">⬇️ Backup & Restore (Firebase)</h2>
@@ -254,6 +291,19 @@ export default function BackupData() {
           </label>
         </div>
       </div>
+      <div className="mt-6 bg-red-50 border-2 border-red-300 rounded-xl p-6 text-center">
+  <h3 className="text-xl font-bold text-red-700 mb-2">🗑️ Reset Database</h3>
+  <p className="text-sm text-red-600 mb-4">
+    Firebase ka sara data delete karein (Fresh start ke liye)
+  </p>
+  <button
+    onClick={handleResetDatabase}
+    disabled={status === 'loading'}
+    className="bg-red-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-red-700 disabled:opacity-50"
+  >
+    {status === 'loading' ? '⏳ Resetting...' : '🗑️ Reset Database'}
+  </button>
+</div>
 
       {/* Instructions */}
       <div className="mt-8 bg-gray-50 rounded-xl p-6 border">

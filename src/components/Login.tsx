@@ -85,7 +85,7 @@ export default function Login({ onLogin }: LoginProps) {
               </button>
              <p className="text-xs text-gray-500 text-center mt-2 flex items-center justify-center gap-2">
   Powered by NomiTec 
-  <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold tracking-wider">v1.0.2</span>
+  <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold tracking-wider">v1.0.3</span>
 </p>
             </div>
           ) : (
