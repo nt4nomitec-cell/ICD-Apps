@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, getDocs, doc, updateDoc, addDoc, query, where } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, addDoc, query, where, deleteDoc, writeBatch } from 'firebase/firestore';
 import { getCustomersFB } from '../firebaseStore';
 import { Customer } from '../types';
 
@@ -29,12 +29,9 @@ export default function OnlineOrders() {
 
   const handleStatusChange = async (id: string, newStatus: string, order: any) => {
     try {
-      // 1. Order ka status update karein
       await updateDoc(doc(db, "orders", id), { status: newStatus });
       
-      // 2. Agar status "Completed" hai, toh ledger entries banayein
       if (newStatus === 'Completed') {
-        // Check karein ke kya pehle se ledger entry hai (duplicate se bachne ke liye)
         const existingLedgerQuery = query(
           collection(db, "ledger"),
           where("customerId", "==", order.customerId),
@@ -42,13 +39,11 @@ export default function OnlineOrders() {
         );
         const existingLedger = await getDocs(existingLedgerQuery);
         
-        // Agar pehle se nahi hai, toh naya entry banayein
         if (existingLedger.empty) {
           const saleDate = order.createdAt ? 
             new Date(order.createdAt.seconds * 1000).toISOString().split('T')[0] : 
             new Date().toISOString().split('T')[0];
           
-          // Calculate current balance for this customer
           const allLedger = await getDocs(collection(db, "ledger"));
           const customerLedger = allLedger.docs
             .map(d => d.data())
@@ -56,7 +51,6 @@ export default function OnlineOrders() {
           const currentBalance = customerLedger.reduce((sum: number, entry: any) => 
             sum + (entry.debit || 0) - (entry.credit || 0), 0);
           
-          // Debit entry (Sale - Udhaar)
           await addDoc(collection(db, "ledger"), {
             customerId: order.customerId,
             date: saleDate,
@@ -66,7 +60,6 @@ export default function OnlineOrders() {
             balance: currentBalance + order.totalAmount
           });
           
-          // Credit entry (Cash Received - agar koi payment aayi ho)
           if (order.cashReceived && order.cashReceived > 0) {
             await addDoc(collection(db, "ledger"), {
               customerId: order.customerId,
@@ -77,17 +70,84 @@ export default function OnlineOrders() {
               balance: currentBalance + order.totalAmount - order.cashReceived
             });
           }
-          
-          console.log('✅ Ledger entries created for completed order:', id);
         }
       }
       
-      // 3. List refresh karein
       fetchOrders();
-      alert(`Order ${newStatus} kar diya gaya!`);
     } catch (error) {
       console.error("Status update error:", error);
       alert('Error: ' + (error as Error).message);
+    }
+  };
+
+  // 🗑️ NAYA: Order Delete Function
+  const handleDeleteOrder = async (id: string, order: any) => {
+    const confirmMsg = `⚠️ WARNING: Kya aap waqai yeh order delete karna chahte hain?\n\nOrder #${id.slice(0, 8).toUpperCase()}\nCustomer: ${order.customerName}\nAmount: Rs. ${order.totalAmount}\n\nYeh action undo nahi hoga!`;
+    
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+
+    try {
+      // 1. Order delete karein
+      await deleteDoc(doc(db, "orders", id));
+      
+      // 2. Agar order Completed tha, toh uski ledger entries bhi delete karein
+      if (order.status === 'Completed') {
+        const ledgerQuery = query(
+          collection(db, "ledger"),
+          where("customerId", "==", order.customerId),
+          where("description", "in", [
+            `Online Order #${id.slice(0, 8).toUpperCase()} - Sale`,
+            `Online Order #${id.slice(0, 8).toUpperCase()} - Cash Received`
+          ])
+        );
+        const ledgerSnapshot = await getDocs(ledgerQuery);
+        
+        const batch = writeBatch(db);
+        ledgerSnapshot.docs.forEach(d => batch.delete(doc(db, "ledger", d.id)));
+        await batch.commit();
+        
+        console.log('✅ Order aur uski ledger entries delete ho gayi');
+      }
+      
+      fetchOrders();
+      alert('✅ Order delete ho gaya!');
+    } catch (error) {
+      console.error("Delete error:", error);
+      alert('❌ Delete karne mein masla: ' + (error as Error).message);
+    }
+  };
+
+  // 🗑️ NAYA: Sab Orders Ek Saath Delete (Fresh Start ke liye)
+  const handleDeleteAllOrders = async () => {
+    if (orders.length === 0) {
+      alert('Koi order nahi hai delete karne ke liye!');
+      return;
+    }
+    
+    const confirmMsg = `⚠️ DANGER: Kya aap waqai SAB orders delete karna chahte hain?\n\nTotal Orders: ${orders.length}\n\nYeh action undo nahi hoga! Fresh start ke liye yeh option use karein.`;
+    
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+    
+    // Double confirmation
+    const doubleConfirm = window.confirm('⚠️ LAST WARNING: SAB orders delete ho jayenge. Kya aap 100% sure hain?');
+    if (!doubleConfirm) return;
+
+    try {
+      const batch = writeBatch(db);
+      orders.forEach(order => {
+        batch.delete(doc(db, "orders", order.id));
+      });
+      await batch.commit();
+      
+      setOrders([]);
+      alert(`✅ Sab ${orders.length} orders delete ho gaye!`);
+    } catch (error) {
+      console.error("Delete all error:", error);
+      alert('❌ Delete karne mein masla: ' + (error as Error).message);
     }
   };
 
@@ -104,7 +164,18 @@ export default function OnlineOrders() {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">📦 Online Orders</h2>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-bold text-gray-800">📦 Online Orders</h2>
+        
+        {/* ️ NAYA: Sab Orders Delete Button */}
+        {orders.length > 0 && (
+          <button 
+            onClick={handleDeleteAllOrders}
+            className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700 flex items-center gap-2">
+            🗑️ Delete All Orders
+          </button>
+        )}
+      </div>
       
       {orders.length === 0 ? (
         <div className="bg-white rounded-xl p-12 text-center">
@@ -113,7 +184,6 @@ export default function OnlineOrders() {
       ) : (
         <div className="space-y-4">
           {orders.map(order => {
-               <p className="text-sm text-gray-600">👤 {order.customerName} | 📞 {order.customerPhone}</p>
             return (
               <div key={order.id} className="bg-white rounded-xl shadow-sm border p-4">
                 <div className="flex justify-between items-start mb-3">
@@ -122,7 +192,7 @@ export default function OnlineOrders() {
                     <p className="text-sm text-gray-500">
                       📅 {order.createdAt ? new Date(order.createdAt.seconds * 1000).toLocaleString() : 'N/A'}
                     </p>
-                    <p className="text-sm text-gray-600">👤 {order.customerName} | 📞 {order.customerPhone}</p>
+                    <p className="text-sm text-gray-600"> {order.customerName} | 📞 {order.customerPhone}</p>
                     <p className="text-sm text-gray-600">📍 {order.customerAddress}</p>
                   </div>
                   <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(order.status)}`}>
@@ -154,7 +224,7 @@ export default function OnlineOrders() {
                         </button>
                         <button 
                           onClick={() => handleStatusChange(order.id, 'Cancelled', order)}
-                          className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700">
+                          className="bg-yellow-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-yellow-700">
                           ❌ Cancel
                         </button>
                       </>
@@ -166,6 +236,12 @@ export default function OnlineOrders() {
                           🔄 Reopen
                       </button>
                     )}
+                    {/* 🗑️ NAYA: Delete Button */}
+                    <button 
+                      onClick={() => handleDeleteOrder(order.id, order)}
+                      className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700">
+                      🗑️ Delete
+                    </button>
                   </div>
                 </div>
               </div>
