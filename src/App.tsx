@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { initializeStore } from './store';
-import { syncLocalStorageToFirebase, testFirebaseConnection } from './firebaseStore';
+import { testFirebaseConnection } from './firebaseStore';
 import Login from './components/Login';
 import AdminDashboard from './components/AdminDashboard';
 import CustomerDashboard from './components/CustomerDashboard';
@@ -11,34 +10,30 @@ function App() {
   const [customerId, setCustomerId] = useState<string | null>(null);
 
   useEffect(() => {
-    // Sirf ek baar sync karein
-    const syncDone = sessionStorage.getItem('sync_done');
-    
-    if (!syncDone) {
-      initializeStore();
-      
-      console.log('🔄 Firebase sync shuru ho raha hai...');
-      
-      // Pehle connection test karein
-      testFirebaseConnection().then(() => {
-        console.log('✅ Test pass! Ab poora sync shuru...');
-        return syncLocalStorageToFirebase();
-      }).then(() => {
-        console.log('✅ LocalStorage data Firebase mein sync ho gaya!');
-        sessionStorage.setItem('sync_done', 'true');
-      }).catch((error) => {
-        console.error('❌ Firebase sync mein error:', error);
-        alert('Firebase sync ka error: ' + error.message);
-      });
-    }
+    // Sirf Firebase connection test karein, koi default data sync NA karein
+    const checkConnection = async () => {
+      try {
+        console.log('🔄 Firebase connection check ho raha hai...');
+        await testFirebaseConnection();
+        console.log('✅ Firebase successfully connected!');
+      } catch (error) {
+        console.error('❌ Firebase connection error:', error);
+      }
+    };
 
-    // Purani session check karein
+    checkConnection();
+
+    // Purani session check karein (agar user pehle se login hai)
     const savedSession = sessionStorage.getItem('icd_session');
     if (savedSession) {
-      const session = JSON.parse(savedSession);
-      setIsLoggedIn(true);
-      setUserType(session.type);
-      if (session.customerId) setCustomerId(session.customerId);
+      try {
+        const session = JSON.parse(savedSession);
+        setIsLoggedIn(true);
+        setUserType(session.type);
+        if (session.customerId) setCustomerId(session.customerId);
+      } catch (e) {
+        sessionStorage.removeItem('icd_session');
+      }
     }
   }, []);
 
